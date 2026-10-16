@@ -30,6 +30,14 @@ using namespace std::chrono_literals;
 namespace nav2_util
 {
 
+/**
+ * @brief 构造函数，使用内部自动创建的 ROS 2 节点构造生命周期服务客户端
+ *
+ * 客户端会连接目标生命周期节点的 change_state 和 get_state 服务，
+ * 并创建一个内部节点用于服务通信。
+ *
+ * @param lifecycle_node_name 目标生命周期节点的名称
+ */
 LifecycleServiceClient::LifecycleServiceClient(const string & lifecycle_node_name)
 : node_(generate_internal_node(lifecycle_node_name + "_lifecycle_client")),
   change_state_(lifecycle_node_name + "/change_state", node_),
@@ -44,6 +52,15 @@ LifecycleServiceClient::LifecycleServiceClient(const string & lifecycle_node_nam
   }
 }
 
+/**
+ * @brief 构造函数，使用已有的父节点构造生命周期服务客户端
+ *
+ * 客户端会连接目标生命周期节点的 change_state 和 get_state 服务，
+ * 并使用 parent_node 进行服务通信。
+ *
+ * @param lifecycle_node_name 目标生命周期节点的名称
+ * @param parent_node 已有 ROS 2 父节点的共享指针
+ */
 LifecycleServiceClient::LifecycleServiceClient(
   const string & lifecycle_node_name,
   rclcpp::Node::SharedPtr parent_node)
@@ -55,7 +72,7 @@ LifecycleServiceClient::LifecycleServiceClient(
   rclcpp::Rate r(20);
   while (!get_state_.wait_for_service(2s)) {
     RCLCPP_INFO(
-      node_->get_logger(), "Waiting for service %s...", get_state_.getServiceName().c_str());
+      node_->get_logger(), "Waiting for service %s... 等待服务...", get_state_.getServiceName().c_str());
     r.sleep();
   }
 }

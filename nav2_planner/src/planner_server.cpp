@@ -48,7 +48,7 @@ PlannerServer::PlannerServer(const rclcpp::NodeOptions & options)
   costmap_update_timeout_(1s),
   costmap_(nullptr)
 {
-  RCLCPP_INFO(get_logger(), "Creating");
+  RCLCPP_INFO(get_logger(), "Creating | PlannerServer 构造函数开始");
 
   // Declare this node's parameters
   declare_parameter("planner_plugins", default_ids_);
@@ -67,6 +67,9 @@ PlannerServer::PlannerServer(const rclcpp::NodeOptions & options)
   costmap_ros_ = std::make_shared<nav2_costmap_2d::Costmap2DROS>(
     "global_costmap", std::string{get_namespace()}, "global_costmap",
     get_parameter("use_sim_time").as_bool());
+
+  RCLCPP_INFO(get_logger(), "Creating | PlannerServer 构造函数结束");
+  
 }
 
 PlannerServer::~PlannerServer()
@@ -79,42 +82,50 @@ PlannerServer::~PlannerServer()
   costmap_thread_.reset();
 }
 
+/**
+ * @brief Configure member variables and initializes planner  | 配置成员变量并初始化规划器
+ * @param state Reference to LifeCycle node state | 配置前的生命周期状态
+ * @return SUCCESS or FAILURE | 返回成功、失败或错误
+ * @note Overrides LifecycleNodeInterface::on_configure() | 重写基类的 on_configure() 虚函数
+ */
 nav2_util::CallbackReturn
 PlannerServer::on_configure(const rclcpp_lifecycle::State & state)
 {
-  RCLCPP_INFO(get_logger(), "Configuring");
+  RCLCPP_INFO(get_logger(), "\033[33m Configuring--------------ywz--------- \033[0m");
 
-  costmap_ros_->configure();
+  // 配置全局代价地图
+  costmap_ros_->configure();      // 作用是：触发 global_costmap 生命周期节点的 CONFIGURE 状态转换，执行 Costmap2DROS::on_configure()，完成全局代价地图所需资源的初始化。
   costmap_ = costmap_ros_->getCostmap();
 
+  // 创建足迹碰撞检查器
   if (!costmap_ros_->getUseRadius()) {
     collision_checker_ =
       std::make_unique<nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *>>(
       costmap_);
   }
 
-  // Launch a thread to run the costmap node
+  // Launch a thread to run the costmap node | 启动 Costmap 执行线程
   costmap_thread_ = std::make_unique<nav2_util::NodeThread>(costmap_ros_);
 
-  RCLCPP_DEBUG(
-    get_logger(), "Costmap size: %d,%d",
-    costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
+  RCLCPP_INFO(get_logger(), "Costmap size: %d,%d", costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
 
   tf_ = costmap_ros_->getTfBuffer();
 
+  // 动态加载全局规划器插件
   planner_types_.resize(planner_ids_.size());
 
   auto node = shared_from_this();
 
+  // 随后逐个加载插件
   for (size_t i = 0; i != planner_ids_.size(); i++) {
     try {
-      planner_types_[i] = nav2_util::get_plugin_type_param(
-        node, planner_ids_[i]);
-      nav2_core::GlobalPlanner::Ptr planner =
-        gp_loader_.createUniqueInstance(planner_types_[i]);
+      planner_types_[i] = nav2_util::get_plugin_type_param(node, planner_ids_[i]);
+      nav2_core::GlobalPlanner::Ptr planner = gp_loader_.createUniqueInstance(planner_types_[i]);
+  
       RCLCPP_INFO(
         get_logger(), "Created global planner plugin %s of type %s",
         planner_ids_[i].c_str(), planner_types_[i].c_str());
+
       planner->configure(node, planner_ids_[i], tf_, costmap_ros_);
       planners_.insert({planner_ids_[i], planner});
     } catch (const std::exception & ex) {
@@ -146,9 +157,10 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & state)
     max_planner_duration_ = 0.0;
   }
 
-  // Initialize pubs & subs
+  // Initialize pubs & subs | 创建路径发布器
   plan_publisher_ = create_publisher<nav_msgs::msg::Path>("plan", 1);
 
+  // 读取 Action Server 参数
   double action_server_result_timeout;
   get_parameter("action_server_result_timeout", action_server_result_timeout);
   rcl_action_server_options_t server_options = rcl_action_server_get_default_options();
@@ -159,6 +171,7 @@ PlannerServer::on_configure(const rclcpp_lifecycle::State & state)
   costmap_update_timeout_ = rclcpp::Duration::from_seconds(costmap_update_timeout_dbl);
 
   // Create the action servers for path planning to a pose and through poses
+  // // 创建路径规划 Action Server：规划到目标位姿，以及规划经过多个位姿
   action_server_pose_ = std::make_unique<ActionServerToPose>(
     shared_from_this(),
     "compute_path_to_pose",

@@ -33,11 +33,11 @@ from nav2_common.launch import ReplaceString, RewrittenYaml
 
 
 def generate_launch_description():
-    # Get the launch directory
+    # 获得launch文件路径 Get the launch directory
     bringup_dir = get_package_share_directory('nav2_bringup')
     launch_dir = os.path.join(bringup_dir, 'launch')
 
-    # Create the launch configuration variables
+    # 创建 Launch 配置变量 Create the launch configuration variables
     namespace = LaunchConfiguration('namespace')
     use_namespace = LaunchConfiguration('use_namespace')
     slam = LaunchConfiguration('slam')
@@ -62,12 +62,19 @@ def generate_launch_description():
     # '<robot_namespace>' keyword shall be replaced by 'namespace' launch argument
     # in config file 'nav2_multirobot_params.yaml' as a default & example.
     # User defined config file should contain '<robot_namespace>' keyword for the replacements.
+    # 仅当 use_namespace 为 True 时，下面的替换操作才会执行。
+    # 参数文件中的 <robot_namespace> 占位符，会被启动参数 namespace 的值替换。
+    # Nav2 提供的多机器人参数文件以此作为默认示例。
+    # 如果用户自己编写多机器人参数文件，也需要在相应位置写入 <robot_namespace> 占位符，才能执行替换。
+    # 只有在use_namespace:=true时候才执行替换。如果为 false，就直接使用原参数文件。
     params_file = ReplaceString(
         source_file=params_file,
         replacements={'<robot_namespace>': ('/', namespace)},
         condition=IfCondition(use_namespace),
     )
 
+    # RewrittenYaml：修改 YAML 内容
+    # ParameterFile：把 YAML 作为 ROS 2 节点参数文件使用
     configured_params = ParameterFile(
         RewrittenYaml(
             source_file=params_file,
@@ -78,6 +85,7 @@ def generate_launch_description():
         allow_substs=True,
     )
 
+    # 相当于 export RCUTILS_LOGGING_BUFFERED_STREAM=1
     stdout_linebuf_envvar = SetEnvironmentVariable(
         'RCUTILS_LOGGING_BUFFERED_STREAM', '1'
     )
@@ -140,9 +148,15 @@ def generate_launch_description():
     )
 
     # Specify the actions
+    # 把一组启动动作放在同一个组中。PushROSNamespace 设置的命名空间会作用于组内后续动作。
     bringup_cmd_group = GroupAction(
         [
+            # use_namespace=true 时，把后续 ROS 节点放入 namespace。
+            # 例如 namespace=robot1，节点会变成 /robot1/amcl。
             PushROSNamespace(condition=IfCondition(use_namespace), namespace=namespace),
+
+            # use_composition=true 时创建 Nav2 组件容器。
+            # 后面的 Nav2 组件会被动态加载到这个进程中。
             Node(
                 condition=IfCondition(use_composition),
                 name='nav2_container',
@@ -150,14 +164,19 @@ def generate_launch_description():
                 executable='component_container_isolated',
                 parameters=[configured_params, {'autostart': autostart}],
                 arguments=['--ros-args', '--log-level', log_level],
-                remappings=remappings,
+                remappings=remappings,       # 把绝对 TF 话题改为相对话题，使 namespace 能生效
                 output='screen',
             ),
+
+            # 条件满足时包含 SLAM 启动文件
             IncludeLaunchDescription(
+                # 指定要包含的 Python Launch 文件
                 PythonLaunchDescriptionSource(
                     os.path.join(launch_dir, 'slam_launch.py')
                 ),
+                # 只有 slam=true 且 use_localization=true 时启动 SLAM
                 condition=IfCondition(PythonExpression([slam, ' and ', use_localization])),
+                # 向 slam_launch.py 传递启动参数
                 launch_arguments={
                     'namespace': namespace,
                     'use_sim_time': use_sim_time,
@@ -166,11 +185,14 @@ def generate_launch_description():
                     'params_file': params_file,
                 }.items(),
             ),
+            # 不使用 SLAM 时，启动地图定位系统
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(launch_dir, 'localization_launch.py')
                 ),
+                # slam=false 且 use_localization=true 时执行
                 condition=IfCondition(PythonExpression(['not ', slam, ' and ', use_localization])),
+                # 向 localization_launch.py 传递参数
                 launch_arguments={
                     'namespace': namespace,
                     'map': map_yaml_file,
@@ -182,10 +204,13 @@ def generate_launch_description():
                     'container_name': 'nav2_container',
                 }.items(),
             ),
+
+            # 无条件启动导航系统
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(launch_dir, 'navigation_launch.py')
                 ),
+                # 向 navigation_launch.py 传递参数
                 launch_arguments={
                     'namespace': namespace,
                     'use_sim_time': use_sim_time,
@@ -199,12 +224,15 @@ def generate_launch_description():
         ]
     )
 
+    # 创建并填充启动描述
     # Create the launch description and populate
     ld = LaunchDescription()
 
+    # 设置环境变量
     # Set environment variables
     ld.add_action(stdout_linebuf_envvar)
 
+    # 声明启动参数
     # Declare the launch options
     ld.add_action(declare_namespace_cmd)
     ld.add_action(declare_use_namespace_cmd)
@@ -218,6 +246,7 @@ def generate_launch_description():
     ld.add_action(declare_log_level_cmd)
     ld.add_action(declare_use_localization_cmd)
 
+    # 添加用于启动所有导航节点的动作
     # Add the actions to launch all of the navigation nodes
     ld.add_action(bringup_cmd_group)
 

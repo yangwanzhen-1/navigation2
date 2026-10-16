@@ -228,8 +228,9 @@ public:
 
   /**
    * @brief Return a pointer to the "master" costmap which receives updates from all the layers.
+   * | 返回指向“主”代价地图的指针，该地图会接收所有图层的更新
    *
-   * Same as calling getLayeredCostmap()->getCostmap().
+   * Same as calling getLayeredCostmap()->getCostmap(). | 等价于调用 getLayeredCostmap()->getCostmap()
    */
   Costmap2D * getCostmap()
   {
@@ -329,6 +330,8 @@ public:
    * @brief  Get the costmap's use_radius_ parameter, corresponding to
    * whether the footprint for the robot is a circle with radius robot_radius_
    * or an arbitrarily defined footprint in footprint_.
+   * 
+   * | 获取代价地图的 use_radius_ 参数，该参数用于表示机器人足迹是以robot_radius_ 为半径的圆形，还是由 footprint_ 任意定义的多边形
    * @return  use_radius_
    */
   bool getUseRadius() {return use_radius_;}

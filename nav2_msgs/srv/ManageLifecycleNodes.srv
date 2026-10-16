@@ -1,11 +1,11 @@
-uint8 STARTUP = 0
-uint8 PAUSE = 1
-uint8 RESUME = 2
-uint8 RESET = 3
-uint8 SHUTDOWN = 4
-uint8 CONFIGURE = 5
-uint8 CLEANUP = 6
+uint8 STARTUP = 0       # 启动所有受管理节点：依次执行 configure 和 activate
+uint8 PAUSE = 1         # 暂停导航系统：对受管理节点执行 deactivate
+uint8 RESUME = 2        # 恢复导航系统：对已暂停的节点执行 activate
+uint8 RESET = 3         # 重置导航系统：将受管理节点恢复到未配置状态
+uint8 SHUTDOWN = 4      # 关闭导航系统：按照相反顺序关闭所有受管理节点
+uint8 CONFIGURE = 5     # 配置所有受管理节点：从 unconfigured 转换为 inactive
+uint8 CLEANUP = 6       # 清理所有受管理节点：从 inactive 转换回 unconfigured
 
-uint8 command
+uint8 command           # 请求执行的生命周期管理命令，值应为上面定义的常量之一
 ---
-bool success
+bool success            # 命令是否执行成功：true 表示成功，false 表示失败

@@ -25,26 +25,28 @@ using namespace std::chrono_literals;
 
 namespace nav2_util
 {
-
+/**
+ * @brief A lifecycle node constructor | 生命周期节点构造函数
+ * @param node_name Name for the node | 节点名称
+ * @param namespace Namespace for the node, if any  | 节点命名空间，没有时使用空字符串
+ * @param options Node options | 创建节点时使用的配置选项
+ */
 LifecycleNode::LifecycleNode(
   const std::string & node_name,
   const std::string & ns,
   const rclcpp::NodeOptions & options)
 : rclcpp_lifecycle::LifecycleNode(node_name, ns, options)
 {
-  // server side never times out from lifecycle manager
+  // server side never times out from lifecycle manager | 生命周期节点服务端不主动判定生命周期管理器心跳超时。
   this->declare_parameter(bond::msg::Constants::DISABLE_HEARTBEAT_TIMEOUT_PARAM, true);
-  this->set_parameter(
-    rclcpp::Parameter(
-      bond::msg::Constants::DISABLE_HEARTBEAT_TIMEOUT_PARAM, true));
+  this->set_parameter(rclcpp::Parameter(bond::msg::Constants::DISABLE_HEARTBEAT_TIMEOUT_PARAM, true));
 
-  nav2_util::declare_parameter_if_not_declared(
-    this, "bond_heartbeat_period", rclcpp::ParameterValue(0.1));
+  // 如果参数尚未声明，则声明 Bond 心跳发送周期，默认值为 0.1 秒。
+  nav2_util::declare_parameter_if_not_declared(this, "bond_heartbeat_period", rclcpp::ParameterValue(0.1));
   this->get_parameter("bond_heartbeat_period", bond_heartbeat_period);
 
   bool autostart_node = false;
-  nav2_util::declare_parameter_if_not_declared(
-    this, "autostart_node", rclcpp::ParameterValue(false));
+  nav2_util::declare_parameter_if_not_declared(this, "autostart_node", rclcpp::ParameterValue(false));
   this->get_parameter("autostart_node", autostart_node);
   if (autostart_node) {
     autostart();
@@ -70,20 +72,25 @@ LifecycleNode::~LifecycleNode()
 
 void LifecycleNode::createBond()
 {
+  // 判断是否启用 Bond,只有心跳周期大于 0 才创建 Bond。
   if (bond_heartbeat_period > 0.0) {
-    RCLCPP_INFO(get_logger(), "Creating bond (%s) to lifecycle manager.", this->get_name());
+    RCLCPP_INFO(get_logger(), "\033[33m Creating bond (%s) to lifecycle manager.\033[0m", this->get_name());
 
+    // 创建 Bond 对象
     bond_ = std::make_shared<bond::Bond>(
       std::string("bond"),
       this->get_name(),
       shared_from_this());
 
-    bond_->setHeartbeatPeriod(bond_heartbeat_period);
-    bond_->setHeartbeatTimeout(4.0);
-    bond_->start();
+    bond_->setHeartbeatPeriod(bond_heartbeat_period);   // 设置心跳发送周期
+    bond_->setHeartbeatTimeout(4.0);      // 设置心跳超时
+    bond_->start();     // 启动 Bond
   }
 }
 
+/**
+ * @brief Automatically configure and active the node | 自动配置并激活当前生命周期节点
+ */
 void LifecycleNode::autostart()
 {
   using lifecycle_msgs::msg::State;
@@ -133,6 +140,13 @@ void LifecycleNode::on_rcl_preshutdown()
   destroyBond();
 }
 
+/**
+ * Register our preshutdown callback for this Node's rcl Context.
+ * The callback fires before this Node's Context is shutdown.
+ * Note this is not directly related to the lifecycle state machine.
+ * 
+ * | 为当前节点的 ROS 2 Context 注册预关闭回调函数。该回调会在 Context 正式关闭之前触发，与生命周期节点的状态机没有直接关系。
+ */
 void LifecycleNode::register_rcl_preshutdown_callback()
 {
   rclcpp::Context::SharedPtr context = get_node_base_interface()->get_context();

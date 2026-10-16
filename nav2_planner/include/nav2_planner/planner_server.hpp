@@ -79,10 +79,22 @@ public:
     std::function<bool()> cancel_checker);
 
 protected:
+  /*
+    on_configure的继承关系是
+      LifecycleNodeInterface
+              ↑
+      rclcpp_lifecycle::LifecycleNode
+              ↑
+      nav2_util::LifecycleNode
+              ↑
+      nav2_planner::PlannerServer
+  */
+
   /**
-   * @brief Configure member variables and initializes planner
-   * @param state Reference to LifeCycle node state
-   * @return SUCCESS or FAILURE
+   * @brief Configure member variables and initializes planner  | 配置成员变量并初始化规划器
+   * @param state Reference to LifeCycle node state | 配置前的生命周期状态
+   * @return SUCCESS or FAILURE | 返回成功、失败或错误
+   * @note Overrides LifecycleNodeInterface::on_configure() | 重写基类的 on_configure() 虚函数
    */
   nav2_util::CallbackReturn on_configure(const rclcpp_lifecycle::State & state) override;
   /**
@@ -228,38 +240,37 @@ protected:
   dynamicParametersCallback(std::vector<rclcpp::Parameter> parameters);
 
   // Our action server implements the ComputePathToPose action
-  std::unique_ptr<ActionServerToPose> action_server_pose_;
-  std::unique_ptr<ActionServerThroughPoses> action_server_poses_;
+  std::unique_ptr<ActionServerToPose> action_server_pose_;        // 实现“规划到单个目标点”的 Action 服务端
+  std::unique_ptr<ActionServerThroughPoses> action_server_poses_; // 实现“依次经过多个目标点”的 Action 服务端
 
   // Dynamic parameters handler
-  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;
-  std::mutex dynamic_params_lock_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr dyn_params_handler_;  // 动态参数回调句柄
+  std::mutex dynamic_params_lock_;  // 串行保护规划过程和动态参数更新
 
   // Planner
-  PlannerMap planners_;
-  pluginlib::ClassLoader<nav2_core::GlobalPlanner> gp_loader_;
-  std::vector<std::string> default_ids_;
-  std::vector<std::string> default_types_;
-  std::vector<std::string> planner_ids_;
-  std::vector<std::string> planner_types_;
-  double max_planner_duration_;
-  rclcpp::Duration costmap_update_timeout_;
-  std::string planner_ids_concat_;
+  PlannerMap planners_;                     // 规划器 ID 到插件实例的映射
+  pluginlib::ClassLoader<nav2_core::GlobalPlanner> gp_loader_;      // 全局规划器插件加载器
+  std::vector<std::string> default_ids_;    // 默认规划器 ID 列表
+  std::vector<std::string> default_types_;  // 默认 ID 对应的插件类型
+  std::vector<std::string> planner_ids_;    // 从 planner_plugins 参数读取的规划器 ID 列表
+  std::vector<std::string> planner_types_;  // planner_ids_ 对应的插件类型
+  double max_planner_duration_;             // 期望的最大规划时长，单位为秒
+  rclcpp::Duration costmap_update_timeout_;  // 等待代价地图更新完成的超时时间
+  std::string planner_ids_concat_;           // 用于日志和错误信息的规划器 ID 字符串
 
-  // TF buffer
+  // TF buffer | TF 变换缓冲区
   std::shared_ptr<tf2_ros::Buffer> tf_;
 
   // Global Costmap
-  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;
-  std::unique_ptr<nav2_util::NodeThread> costmap_thread_;
-  nav2_costmap_2d::Costmap2D * costmap_;
-  std::unique_ptr<nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *>>
-  collision_checker_;
+  std::shared_ptr<nav2_costmap_2d::Costmap2DROS> costmap_ros_;    // 全局代价地图生命周期节点
+  std::unique_ptr<nav2_util::NodeThread> costmap_thread_;         // 执行代价地图节点回调的线程
+  nav2_costmap_2d::Costmap2D * costmap_;                          // 指向主代价地图的非拥有型指针
+  std::unique_ptr<nav2_costmap_2d::FootprintCollisionChecker<nav2_costmap_2d::Costmap2D *>> collision_checker_;       // 机器人足迹碰撞检查器
 
-  // Publishers for the path
+  // Publishers for the path    // 全局规划路径发布器
   rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Path>::SharedPtr plan_publisher_;
 
-  // Service to determine if the path is valid
+  // Service to determine if the path is valid    // 路径有效性检查服务
   rclcpp::Service<nav2_msgs::srv::IsPathValid>::SharedPtr is_path_valid_service_;
 };
 

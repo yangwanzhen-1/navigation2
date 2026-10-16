@@ -35,12 +35,12 @@ namespace nav2_lifecycle_manager
 LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
 : Node("lifecycle_manager", options), diagnostics_updater_(this)
 {
-  RCLCPP_INFO(get_logger(), "Creating");
+  RCLCPP_INFO(get_logger(), "\033[34m Creating. LifecycleManager 构造函数 初始化开始 \033[0m");
 
-  // The list of names is parameterized, allowing this module to be used with a different set
-  // of nodes
-  declare_parameter("node_names", rclcpp::PARAMETER_STRING_ARRAY);
-  declare_parameter("autostart", rclcpp::ParameterValue(false));
+  // The list of names is parameterized, allowing this module to be used with a different set of nodes
+  // 名称列表已参数化，使该模块可以与不同的一组节点配合使用
+  declare_parameter("node_names", rclcpp::PARAMETER_STRING_ARRAY);  // 只指定类型，没有默认内容 // rclcpp::PARAMETER_STRING_ARRAY 表示 ROS 2 参数类型中的“字符串数组”。
+  declare_parameter("autostart", rclcpp::ParameterValue(false));    // 表示创建一个 ROS 2 参数值，内容是布尔值 false
   declare_parameter("bond_timeout", 4.0);
   declare_parameter("bond_respawn_max_duration", 10.0);
   declare_parameter("attempt_respawn_reconnection", true);
@@ -51,8 +51,21 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   get_parameter("autostart", autostart_);
   double bond_timeout_s;
   get_parameter("bond_timeout", bond_timeout_s);
-  bond_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::duration<double>(bond_timeout_s));
+  // 把以“秒”为单位的 bond_timeout_s 转换成以“毫秒”为单位的 bond_timeout_
+  bond_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(bond_timeout_s));
+
+  // ---------------打印日志------------------------
+  // 将节点名称数组转换成便于打印的字符串
+  std::string node_names_text;
+  for (size_t i = 0; i < node_names_.size(); ++i) {
+    node_names_text += node_names_[i];
+    if (i + 1 < node_names_.size()) {
+      node_names_text += ", ";
+    }
+  }
+  RCLCPP_INFO(get_logger(), "生命周期管理器参数：node_names=[%s]，autostart=%s，bond_timeout=%.2f 秒", 
+              node_names_text.c_str(), autostart_ ? "true" : "false", bond_timeout_s);
+  // ---------------打印日志------------------------
 
   double respawn_timeout_s;
   get_parameter("bond_respawn_max_duration", respawn_timeout_s);
@@ -60,6 +73,12 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
 
   get_parameter("attempt_respawn_reconnection", attempt_respawn_reconnection_);
 
+  RCLCPP_INFO(get_logger(),"当前节点名称(get_name): %s, 完整节点名称：%s", get_name(), get_fully_qualified_name());
+  // 当前节点名称(get_name): lifecycle_manager_navfn_example, 完整节点名称：/lifecycle_manager_navfn_example
+
+
+  // 创建互斥回调组，并禁止自动加入节点执行器，稍后由独立线程中的执行器手动管理，
+  // MutuallyExclusive：组内回调互斥执行，表示属于该回调组的回调不能同时执行。一个回调尚未结束时，同组的其他回调必须等待。
   callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive, false);
   manager_srv_ = create_service<ManageLifecycleNodes>(
     get_name() + std::string("/manage_nodes"),
@@ -77,36 +96,37 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   transition_state_map_[Transition::TRANSITION_CLEANUP] = State::PRIMARY_STATE_UNCONFIGURED;
   transition_state_map_[Transition::TRANSITION_ACTIVATE] = State::PRIMARY_STATE_ACTIVE;
   transition_state_map_[Transition::TRANSITION_DEACTIVATE] = State::PRIMARY_STATE_INACTIVE;
-  transition_state_map_[Transition::TRANSITION_UNCONFIGURED_SHUTDOWN] =
-    State::PRIMARY_STATE_FINALIZED;
+  transition_state_map_[Transition::TRANSITION_UNCONFIGURED_SHUTDOWN] = State::PRIMARY_STATE_FINALIZED;
 
   transition_label_map_[Transition::TRANSITION_CONFIGURE] = std::string("Configuring ");
   transition_label_map_[Transition::TRANSITION_CLEANUP] = std::string("Cleaning up ");
   transition_label_map_[Transition::TRANSITION_ACTIVATE] = std::string("Activating ");
   transition_label_map_[Transition::TRANSITION_DEACTIVATE] = std::string("Deactivating ");
-  transition_label_map_[Transition::TRANSITION_UNCONFIGURED_SHUTDOWN] =
-    std::string("Shutting down ");
+  transition_label_map_[Transition::TRANSITION_UNCONFIGURED_SHUTDOWN] = std::string("Shutting down ");
 
+  // 创建立即触发的初始化定时器，使初始化操作在构造函数结束后执行。
   init_timer_ = this->create_wall_timer(
     0s,
     [this]() -> void {
-      init_timer_->cancel();
-      createLifecycleServiceClients();
-      if (autostart_) {
+      init_timer_->cancel();              // 创建立即触发的初始化定时器，使初始化操作在构造函数结束后执行。
+      createLifecycleServiceClients();    // 为所有受管理的生命周期节点创建状态查询和转换服务客户端。// Note: 这里创建需要启动的节点
+      if (autostart_) {                   // 如果启用了自动启动，则创建第二个一次性定时器。
         init_timer_ = this->create_wall_timer(
           0s,
           [this]() -> void {
-            init_timer_->cancel();
-            startup();
+            init_timer_->cancel();        // 取消第二个定时器，保证 startup() 只执行一次。
+            startup();                    // 配置并激活所有受管理节点。
           },
           callback_group_);
       }
+      // 创建专门处理生命周期服务和定时器回调的单线程执行器。
       auto executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
-      executor->add_callback_group(callback_group_, get_node_base_interface());
-      service_thread_ = std::make_unique<nav2_util::NodeThread>(executor);
+      executor->add_callback_group(callback_group_, get_node_base_interface());   // 手动将互斥回调组添加到专用执行器。
+      service_thread_ = std::make_unique<nav2_util::NodeThread>(executor);        // 在独立线程中运行执行器
     });
   diagnostics_updater_.setHardwareID("Nav2");
   diagnostics_updater_.add("Nav2 Health", this, &LifecycleManager::CreateDiagnostic);
+  RCLCPP_INFO(get_logger(), "\033[34m ending. LifecycleManager 构造函数 初始化结束 \033[0m");
 }
 
 LifecycleManager::~LifecycleManager()
@@ -122,25 +142,25 @@ LifecycleManager::managerCallback(
   std::shared_ptr<ManageLifecycleNodes::Response> response)
 {
   switch (request->command) {
-    case ManageLifecycleNodes::Request::STARTUP:
+    case ManageLifecycleNodes::Request::STARTUP:    // 启动导航系统：依次配置并激活所有受管理节点。
       response->success = startup();
       break;
-    case ManageLifecycleNodes::Request::CONFIGURE:
+    case ManageLifecycleNodes::Request::CONFIGURE:  // 配置所有受管理节点，使其从 unconfigured 转换为 inactive。
       response->success = configure();
       break;
-    case ManageLifecycleNodes::Request::CLEANUP:
+    case ManageLifecycleNodes::Request::CLEANUP:    // 清理所有受管理节点，使其从 inactive 转换为 unconfigured。
       response->success = cleanup();
       break;
-    case ManageLifecycleNodes::Request::RESET:
+    case ManageLifecycleNodes::Request::RESET:      // 重置所有受管理节点，使导航系统恢复到初始的未配置状态。
       response->success = reset();
       break;
-    case ManageLifecycleNodes::Request::SHUTDOWN:
+    case ManageLifecycleNodes::Request::SHUTDOWN:   // 按照管理顺序关闭所有受管理节点。
       response->success = shutdown();
       break;
-    case ManageLifecycleNodes::Request::PAUSE:
+    case ManageLifecycleNodes::Request::PAUSE:      // 暂停导航系统：停用所有受管理节点，使其转换为 inactive。
       response->success = pause();
       break;
-    case ManageLifecycleNodes::Request::RESUME:
+    case ManageLifecycleNodes::Request::RESUME:     // 恢复导航系统：重新激活暂停的受管理节点。
       response->success = resume();
       break;
   }
@@ -194,11 +214,12 @@ LifecycleManager::CreateDiagnostic(diagnostic_updater::DiagnosticStatusWrapper &
 void
 LifecycleManager::createLifecycleServiceClients()
 {
-  message("Creating and initializing lifecycle service clients");
+  message("Creating and initializing lifecycle service clients | 正在创建并初始化生命周期服务客户端");
   for (auto & node_name : node_names_) {
     node_map_[node_name] =
       std::make_shared<LifecycleServiceClient>(node_name, shared_from_this());
   }
+  message("Create and initialize lifecycle service clients end | 创建并初始化生命周期服务客户端---结束--");
 }
 
 void
@@ -213,19 +234,20 @@ LifecycleManager::destroyLifecycleServiceClients()
 bool
 LifecycleManager::createBondConnection(const std::string & node_name)
 {
-  const double timeout_ns =
-    std::chrono::duration_cast<std::chrono::nanoseconds>(bond_timeout_).count();
+  // step: 1 转换超时时间
+  const double timeout_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(bond_timeout_).count();
   const double timeout_s = timeout_ns / 1e9;
 
+  // step: 2 判断是否需要创建
+  // 必须同时满足：bond_map_ 中还没有这个节点的 Bond；配置的 bond_timeout 大于 0。
   if (bond_map_.find(node_name) == bond_map_.end() && bond_timeout_.count() > 0.0) {
-    bond_map_[node_name] =
-      std::make_shared<bond::Bond>("bond", node_name, shared_from_this());
+    // 创建 Manager 侧的 Bond
+    bond_map_[node_name] = std::make_shared<bond::Bond>("bond", node_name, shared_from_this());
     bond_map_[node_name]->setHeartbeatTimeout(timeout_s);
     bond_map_[node_name]->setHeartbeatPeriod(0.10);
     bond_map_[node_name]->start();
-    if (
-      !bond_map_[node_name]->waitUntilFormed(
-        rclcpp::Duration(rclcpp::Duration::from_nanoseconds(timeout_ns / 2))))
+    // 等待双方建立连接
+    if (!bond_map_[node_name]->waitUntilFormed(rclcpp::Duration(rclcpp::Duration::from_nanoseconds(timeout_ns / 2))))
     {
       RCLCPP_ERROR(
         get_logger(),
@@ -234,7 +256,7 @@ LifecycleManager::createBondConnection(const std::string & node_name)
         node_name.c_str(), timeout_s);
       return false;
     }
-    RCLCPP_INFO(get_logger(), "Server %s connected with bond.", node_name.c_str());
+    RCLCPP_INFO(get_logger(), "\033[33m Server %s connected with bond.\033[0m", node_name.c_str());
   }
 
   return true;
@@ -245,6 +267,7 @@ LifecycleManager::changeStateForNode(const std::string & node_name, std::uint8_t
 {
   message(transition_label_map_[transition] + node_name);
 
+  // 状态转换请求是否成功，并且节点是否真正进入了预期状态。
   if (!node_map_[node_name]->change_state(transition) ||
     !(node_map_[node_name]->get_state() == transition_state_map_[transition]))
   {
@@ -252,9 +275,9 @@ LifecycleManager::changeStateForNode(const std::string & node_name, std::uint8_t
     return false;
   }
 
-  if (transition == Transition::TRANSITION_ACTIVATE) {
+  if (transition == Transition::TRANSITION_ACTIVATE) {    // 节点激活后，创建 Bond 心跳连接，用于监控节点是否存活
     return createBondConnection(node_name);
-  } else if (transition == Transition::TRANSITION_DEACTIVATE) {
+  } else if (transition == Transition::TRANSITION_DEACTIVATE) {   // 节点停用后，删除对应的 Bond 心跳连接
     bond_map_.erase(node_name);
   }
 
@@ -265,6 +288,8 @@ bool
 LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_change)
 {
   // Hard change will continue even if a node fails
+  // 判断这次状态切换是不是“配置节点” 或 “激活节点”
+  // 配置和激活：正序执行
   if (transition == Transition::TRANSITION_CONFIGURE ||
     transition == Transition::TRANSITION_ACTIVATE)
   {
@@ -280,9 +305,9 @@ LifecycleManager::changeStateForAllNodes(std::uint8_t transition, bool hard_chan
         return false;
       }
     }
-  } else {
+  } else {    // 其他转换：逆序执行. 例如：DEACTIVATE：停用, CLEANUP：清理, SHUTDOWN：关闭
     std::vector<std::string>::reverse_iterator rit;
-    for (rit = node_names_.rbegin(); rit != node_names_.rend(); ++rit) {
+    for (rit = node_names_.rbegin(); rit != node_names_.rend(); ++rit) {    // rbegin() 和 rend() 用来对容器进行反向遍历。
       try {
         if (!changeStateForNode(*rit, transition) && !hard_change) {
           return false;
@@ -311,7 +336,7 @@ LifecycleManager::shutdownAllNodes()
 bool
 LifecycleManager::startup()
 {
-  message("Starting managed nodes bringup...");
+  message("Starting managed nodes bringup... 开始启动受管理节点...");
   if (!changeStateForAllNodes(Transition::TRANSITION_CONFIGURE) ||
     !changeStateForAllNodes(Transition::TRANSITION_ACTIVATE))
   {
@@ -319,7 +344,7 @@ LifecycleManager::startup()
     managed_nodes_state_ = NodeState::UNKNOWN;
     return false;
   }
-  message("Managed nodes are active");
+  message("Managed nodes are active | 受管理节点已激活");
   managed_nodes_state_ = NodeState::ACTIVE;
   createBondTimer();
   return true;
@@ -427,7 +452,7 @@ LifecycleManager::createBondTimer()
     return;
   }
 
-  message("Creating bond timer...");
+  message("Creating bond timer... | 正在创建 bond 定时器...");
   bond_timer_ = this->create_wall_timer(
     200ms,
     std::bind(&LifecycleManager::checkBondConnections, this),
@@ -438,9 +463,9 @@ void
 LifecycleManager::destroyBondTimer()
 {
   if (bond_timer_) {
-    message("Terminating bond timer...");
-    bond_timer_->cancel();
-    bond_timer_.reset();
+    message("Terminating bond timer... | 正在终止 bond 定时器...");
+    bond_timer_->cancel();    // 停止定时器运行。
+    bond_timer_.reset();      // 释放并清空定时器对象。
   }
 }
 

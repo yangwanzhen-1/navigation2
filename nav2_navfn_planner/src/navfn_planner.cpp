@@ -136,6 +136,9 @@ nav_msgs::msg::Path NavfnPlanner::createPlan(
   const geometry_msgs::msg::PoseStamped & goal,
   std::function<bool()> cancel_checker)
 {
+  RCLCPP_INFO(logger_, "\033[1;32m NavFn 收到路径规划请求：起点=(%.2f, %.2f)，终点=(%.2f, %.2f)----准备进行路径规划了----\033[0m", 
+    start.pose.position.x, start.pose.position.y, goal.pose.position.x, goal.pose.position.y);
+  
 #ifdef BENCHMARK_TESTING
   steady_clock::time_point a = steady_clock::now();
 #endif

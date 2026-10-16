@@ -39,10 +39,10 @@ class LifecycleNode : public rclcpp_lifecycle::LifecycleNode
 {
 public:
   /**
-   * @brief A lifecycle node constructor
-   * @param node_name Name for the node
-   * @param namespace Namespace for the node, if any
-   * @param options Node options
+   * @brief A lifecycle node constructor | 生命周期节点构造函数
+   * @param node_name Name for the node | 节点名称
+   * @param namespace Namespace for the node, if any  | 节点命名空间，没有时使用空字符串
+   * @param options Node options | 创建节点时使用的配置选项
    */
   LifecycleNode(
     const std::string & node_name,
@@ -146,7 +146,7 @@ public:
   }
 
   /**
-   * @brief Get a shared pointer of this
+   * @brief Get a shared pointer of thiss | 获取指向当前对象的共享指针
    */
   std::shared_ptr<nav2_util::LifecycleNode> shared_from_this()
   {
@@ -169,7 +169,7 @@ public:
   }
 
   /**
-   * @brief Automatically configure and active the node
+   * @brief Automatically configure and active the node | 自动配置并激活当前生命周期节点
    */
   void autostart();
 
@@ -177,22 +177,24 @@ public:
    * @brief Perform preshutdown activities before our Context is shutdown.
    * Note that this is related to our Context's shutdown sequence, not the
    * lifecycle node state machine.
+   * 
+   * | 在 ROS 2 Context 关闭之前执行预关闭操作。该函数属于 Context 的关闭流程，与生命周期节点状态机无直接关系。
    */
   virtual void on_rcl_preshutdown();
 
   /**
-   * @brief Create bond connection to lifecycle manager
+   * @brief Create bond connection to lifecycle manager | 创建与生命周期管理器之间的 bond 连接
    */
   void createBond();
 
   /**
-   * @brief Destroy bond connection to lifecycle manager
+   * @brief Destroy bond connection to lifecycle manager | 销毁与生命周期管理器之间的 bond 连接
    */
   void destroyBond();
 
 protected:
   /**
-   * @brief Print notifications for lifecycle node
+   * @brief Print notifications for lifecycle node | 打印生命周期节点的启动信息和状态转换提示信息
    */
   void printLifecycleNodeNotification();
 
@@ -200,19 +202,21 @@ protected:
    * Register our preshutdown callback for this Node's rcl Context.
    * The callback fires before this Node's Context is shutdown.
    * Note this is not directly related to the lifecycle state machine.
+   * 
+   * | 为当前节点的 ROS 2 Context 注册预关闭回调函数。该回调会在 Context 正式关闭之前触发，与生命周期节点的状态机没有直接关系。
    */
   void register_rcl_preshutdown_callback();
   std::unique_ptr<rclcpp::PreShutdownCallbackHandle> rcl_preshutdown_cb_handle_{nullptr};
 
   /**
-   * Run some common cleanup steps shared between rcl preshutdown and destruction.
+   * Run some common cleanup steps shared between rcl preshutdown and destruction.| 用于保存和管理已经注册的 ROS 2 Context 预关闭回调
    */
   void runCleanups();
 
-  // Connection to tell that server is still up
+  // Connection to tell that server is still up | 用于通过 Bond 心跳表明当前生命周期节点仍在正常运行
   std::shared_ptr<bond::Bond> bond_{nullptr};
-  double bond_heartbeat_period;
-  rclcpp::TimerBase::SharedPtr autostart_timer_;
+  double bond_heartbeat_period;                     // Bond 心跳消息的发送周期，单位为秒
+  rclcpp::TimerBase::SharedPtr autostart_timer_;    // 节点自动启动使用的定时器，用于在构造函数完成后异步执行生命周期状态转换
 };
 
 }  // namespace nav2_util
